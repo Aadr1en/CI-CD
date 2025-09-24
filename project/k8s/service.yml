@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: react-devops-app-service
+  namespace: react-app-production
+  labels:
+    app: react-devops-app
+    tier: frontend
+spec:
+  selector:
+    app: react-devops-app
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    protocol: TCP
+  type: ClusterIP
+  sessionAffinity: None

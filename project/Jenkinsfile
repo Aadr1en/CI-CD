@@ -1,0 +1,149 @@
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_REGISTRY = 'dockerhub-creds'
+        IMAGE_NAME = 'react-devops-app'
+        KUBECONFIG = credentials('kubeconfig')
+        DOCKER_CREDENTIALS = credentials('docker-registry-credentials')
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    env.BUILD_VERSION = sh(
+                        returnStdout: true,
+                        script: 'git rev-parse --short HEAD'
+                    ).trim()
+                }
+            }
+        }
+        
+        stage('Install Dependencies') {
+            steps {
+                script {
+                    sh 'npm ci'
+                }
+            }
+        }
+        
+        stage('Lint') {
+            steps {
+                sh 'npm run lint'
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                sh 'npm run build'
+            }
+        }
+        
+        stage('Test') {
+            steps {
+                sh 'echo "Running tests..." # Add your test commands here'
+                // sh 'npm test -- --coverage --watchAll=false'
+            }
+            post {
+                always {
+                    // publishHTML([
+                    //     allowMissing: false,
+                    //     alwaysLinkToLastBuild: true,
+                    //     keepAll: true,
+                    //     reportDir: 'coverage/lcov-report',
+                    //     reportFiles: 'index.html',
+                    //     reportName: 'Coverage Report'
+                    // ])
+                    echo 'Test results published'
+                }
+            }
+        }
+        
+        stage('Security Scan') {
+            steps {
+                sh 'npm audit --audit-level moderate'
+            }
+        }
+        
+        stage('Docker Build') {
+            steps {
+                script {
+                    def image = docker.build("${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_VERSION}")
+                    docker.withRegistry("https://${DOCKER_REGISTRY}", DOCKER_CREDENTIALS) {
+                        image.push()
+                        image.push('latest')
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to Staging') {
+            when {
+                branch 'develop'
+            }
+            steps {
+                script {
+                    sh """
+                        ansible-playbook -i ansible/inventory.yml ansible/playbook.yml \
+                        --extra-vars "namespace=staging app_version=${BUILD_VERSION} replicas=1"
+                    """
+                }
+            }
+        }
+        
+        stage('Integration Tests') {
+            when {
+                branch 'develop'
+            }
+            steps {
+                script {
+                    sh 'echo "Running integration tests against staging..."'
+                    // Add your integration test commands here
+                }
+            }
+        }
+        
+        stage('Deploy to Production') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    input message: 'Deploy to production?', ok: 'Deploy'
+                    sh """
+                        ansible-playbook -i ansible/inventory.yml ansible/playbook.yml \
+                        --extra-vars "namespace=production app_version=${BUILD_VERSION} replicas=3"
+                    """
+                }
+            }
+        }
+        
+        stage('Smoke Tests') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    sh 'echo "Running smoke tests against production..."'
+                    // Add smoke test commands here
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo 'Pipeline completed successfully!'
+            // Add notification logic (Slack, email, etc.)
+        }
+        failure {
+            echo 'Pipeline failed!'
+            // Add failure notification logic
+        }
+    }
+}

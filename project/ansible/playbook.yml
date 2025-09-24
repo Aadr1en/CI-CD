@@ -1,0 +1,93 @@
+---
+- name: Deploy React App to Kubernetes
+  hosts: kubernetes
+  become: yes
+  vars:
+    app_name: react-devops-app
+    app_version: "{{ ansible_date_time.epoch }}"
+    docker_registry: "your-registry.com"
+    namespace: production
+    replicas: 3
+
+  tasks:
+    - name: Ensure required packages are installed
+      package:
+        name:
+          - docker.io
+          - kubectl
+        state: present
+
+    - name: Create namespace if it doesn't exist
+      kubernetes.core.k8s:
+        name: "{{ namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+
+    - name: Copy Kubernetes manifests
+      template:
+        src: "{{ item }}.j2"
+        dest: "/tmp/{{ item }}"
+      loop:
+        - deployment.yml
+        - service.yml
+        - ingress.yml
+        - configmap.yml
+
+    - name: Apply ConfigMap
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('file', '/tmp/configmap.yml') | from_yaml }}"
+
+    - name: Apply Deployment
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('file', '/tmp/deployment.yml') | from_yaml }}"
+
+    - name: Apply Service
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('file', '/tmp/service.yml') | from_yaml }}"
+
+    - name: Apply Ingress
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ lookup('file', '/tmp/ingress.yml') | from_yaml }}"
+
+    - name: Wait for deployment to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: "{{ app_name }}"
+        namespace: "{{ namespace }}"
+        wait: true
+        wait_condition:
+          type: Progressing
+          status: "True"
+          reason: NewReplicaSetAvailable
+        wait_timeout: 300
+
+    - name: Get deployment status
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: "{{ app_name }}"
+        namespace: "{{ namespace }}"
+      register: deployment_status
+
+    - name: Display deployment information
+      debug:
+        msg: |
+          Deployment Status: {{ deployment_status.resources[0].status.conditions[-1].type }}
+          Available Replicas: {{ deployment_status.resources[0].status.availableReplicas | default(0) }}
+          Ready Replicas: {{ deployment_status.resources[0].status.readyReplicas | default(0) }}
+
+    - name: Clean up temporary files
+      file:
+        path: "/tmp/{{ item }}"
+        state: absent
+      loop:
+        - deployment.yml
+        - service.yml
+        - ingress.yml
+        - configmap.yml

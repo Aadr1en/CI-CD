@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ react-devops-app }}
+  namespace: {{ namespace }}
+  labels:
+    app: {{ react-devops-app }}
+    version: "{{ node:18-alpine }}"
+spec:
+  replicas: {{ replicas }}
+  selector:
+    matchLabels:
+      app: {{ react-devops-app }}
+  template:
+    metadata:
+      labels:
+        app: {{ react-devops-app }}
+        version: "{{ node:18-alpine }}"
+    spec:
+      containers:
+      - name: {{ react-devops-app }}
+        image: {{ docker_registry }}/{{ react-devops-app }}:{{ node:18-alpine }}
+        ports:
+        - containerPort: 80
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: VERSION
+          value: "{{ node:18-alpine }}"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL

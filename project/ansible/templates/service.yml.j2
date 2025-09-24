@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ react-devops-app }}-service
+  namespace: {{ namespace }}
+  labels:
+    app: {{ react-devops-app }}
+spec:
+  selector:
+    app: {{ react-devops-app }}
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+  type: ClusterIP
